@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+}
+
+body {
+  background: radial-gradient(circle at top left, #cffafe 0%, #f8fafc 45%, #e2e8f0 100%);
+  color: var(--foreground);
+  font-family: var(--font-jakarta), "Segoe UI", sans-serif;
+}
