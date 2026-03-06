@@ -1,6 +1,6 @@
 # Tars Live Chat
 
-A real-time one-on-one messaging web app built with **Next.js (App Router)**, **TypeScript**, **Convex**, **Clerk**, and **Tailwind CSS**.
+A real-time messaging web app built with **Next.js (App Router)**, **TypeScript**, **Convex**, **Clerk**, and **Tailwind CSS**.
 
 ## Implemented Features
 
@@ -15,6 +15,8 @@ A real-time one-on-one messaging web app built with **Next.js (App Router)**, **
 9. Real-time unread message badge in sidebar
 10. Smart auto-scroll + new messages button when user is reading older messages
 11. Optional implemented: soft delete own message ("This message was deleted")
+12. Optional implemented: message reactions (👍 ❤️ 😂 😮 😢) with realtime counts/toggle
+14. Optional implemented: group chat creation with custom name + member selection
 13. Optional implemented: loading states + failed send retry UI
 
 ## Tech Stack
@@ -78,4 +80,3 @@ Record a 5-minute Loom video and include:
 3. Explain one feature deeply in code
 4. Demo app in browser
 5. Make one live code change and show result
-

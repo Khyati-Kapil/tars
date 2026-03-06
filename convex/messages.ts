@@ -1,8 +1,17 @@
-// @ts-nocheck
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import {
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
-async function getCurrentUser(ctx) {
+const ALLOWED_REACTIONS = ["👍", "❤️", "😂", "😮", "😢"] as const;
+
+type Ctx = QueryCtx | MutationCtx;
+
+async function getCurrentUser(ctx: Ctx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity?.subject) {
     return null;
@@ -14,7 +23,11 @@ async function getCurrentUser(ctx) {
     .unique();
 }
 
-async function assertMember(ctx, conversationId, userId) {
+async function assertMember(
+  ctx: Ctx,
+  conversationId: Id<"conversations">,
+  userId: Id<"users">,
+) {
   const membership = await ctx.db
     .query("conversationMembers")
     .withIndex("by_conversation_user", (q) =>
@@ -99,6 +112,51 @@ export const deleteOwnMessage = mutation({
   },
 });
 
+export const toggleReaction = mutation({
+  args: {
+    messageId: v.id("messages"),
+    emoji: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const me = await getCurrentUser(ctx);
+    if (!me) {
+      throw new Error("Unauthorized");
+    }
+
+    if (!ALLOWED_REACTIONS.includes(args.emoji as (typeof ALLOWED_REACTIONS)[number])) {
+      throw new Error("Unsupported reaction");
+    }
+
+    const message = await ctx.db.get(args.messageId);
+    if (!message) {
+      throw new Error("Message not found");
+    }
+
+    await assertMember(ctx, message.conversationId, me._id);
+
+    const existing = await ctx.db
+      .query("messageReactions")
+      .withIndex("by_message_user_emoji", (q) =>
+        q.eq("messageId", args.messageId).eq("userId", me._id).eq("emoji", args.emoji),
+      )
+      .unique();
+
+    if (existing) {
+      await ctx.db.delete(existing._id);
+      return { active: false };
+    }
+
+    await ctx.db.insert("messageReactions", {
+      messageId: args.messageId,
+      userId: me._id,
+      emoji: args.emoji,
+      createdAt: Date.now(),
+    });
+
+    return { active: true };
+  },
+});
+
 export const listByConversation = query({
   args: {
     conversationId: v.id("conversations"),
@@ -125,8 +183,11 @@ export const listByConversation = query({
 
     const userIds = [...new Set(memberRows.map((m) => m.userId))];
     const profiles = await Promise.all(userIds.map((id) => ctx.db.get(id)));
+    const validProfiles = profiles.filter(
+      (profile): profile is NonNullable<typeof profile> => profile !== null,
+    );
     const userMap = new Map(
-      profiles.filter(Boolean).map((user) => [user._id, user]),
+      validProfiles.map((profile) => [profile._id, profile]),
     );
 
     const typingRows = await ctx.db
@@ -141,11 +202,34 @@ export const listByConversation = query({
 
     const typingUser = recentTyping ? userMap.get(recentTyping.userId) : null;
 
+    const allReactions = await Promise.all(
+      rows.map((message) =>
+        ctx.db
+          .query("messageReactions")
+          .withIndex("by_message", (q) => q.eq("messageId", message._id))
+          .collect(),
+      ),
+    );
+
+    const reactionsByMessage = new Map(
+      rows.map((message, index) => [message._id, allReactions[index]]),
+    );
+
     return {
       currentUserId: me._id,
       typingUserName: typingUser?.name ?? null,
       messages: rows.map((msg) => {
         const sender = userMap.get(msg.senderId);
+        const reactions = reactionsByMessage.get(msg._id) ?? [];
+        const grouped = ALLOWED_REACTIONS.map((emoji) => {
+          const matches = reactions.filter((reaction) => reaction.emoji === emoji);
+          return {
+            emoji,
+            count: matches.length,
+            reactedByMe: matches.some((reaction) => reaction.userId === me._id),
+          };
+        }).filter((entry) => entry.count > 0);
+
         return {
           _id: msg._id,
           body: msg.body,
@@ -155,6 +239,7 @@ export const listByConversation = query({
           senderName: sender?.name ?? "Unknown",
           senderImageUrl: sender?.imageUrl ?? "",
           isMine: msg.senderId === me._id,
+          reactions: grouped,
         };
       }),
     };

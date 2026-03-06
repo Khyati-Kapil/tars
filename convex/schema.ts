@@ -50,6 +50,15 @@ export default defineSchema({
     .index("by_conversation", ["conversationId"])
     .index("by_sender", ["senderId"]),
 
+  messageReactions: defineTable({
+    messageId: v.id("messages"),
+    userId: v.id("users"),
+    emoji: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_message", ["messageId"])
+    .index("by_message_user_emoji", ["messageId", "userId", "emoji"]),
+
   typingStates: defineTable({
     conversationId: v.id("conversations"),
     userId: v.id("users"),

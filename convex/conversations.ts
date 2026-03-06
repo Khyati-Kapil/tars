@@ -1,8 +1,10 @@
-// @ts-nocheck
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
-async function getCurrentUser(ctx) {
+type Ctx = QueryCtx | MutationCtx;
+
+async function getCurrentUser(ctx: Ctx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity?.subject) {
     return null;
@@ -14,8 +16,8 @@ async function getCurrentUser(ctx) {
     .unique();
 }
 
-function sortPair(idOne, idTwo) {
-  return idOne < idTwo ? [idOne, idTwo] : [idTwo, idOne];
+function sortPair(idOne: Id<"users">, idTwo: Id<"users">) {
+  return String(idOne) < String(idTwo) ? [idOne, idTwo] : [idTwo, idOne];
 }
 
 export const openDirectConversation = mutation({
@@ -95,6 +97,53 @@ export const markConversationRead = mutation({
     await ctx.db.patch(membership._id, {
       lastReadAt: Date.now(),
     });
+  },
+});
+
+export const createGroupConversation = mutation({
+  args: {
+    name: v.string(),
+    memberIds: v.array(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const me = await getCurrentUser(ctx);
+    if (!me) {
+      throw new Error("Unauthorized");
+    }
+
+    const cleanName = args.name.trim();
+    if (cleanName.length < 2) {
+      throw new Error("Group name must be at least 2 characters");
+    }
+
+    const uniqueMembers = [...new Set(args.memberIds)].filter((id) => id !== me._id);
+    if (uniqueMembers.length < 2) {
+      throw new Error("Select at least two other members");
+    }
+
+    const now = Date.now();
+    const conversationId = await ctx.db.insert("conversations", {
+      isGroup: true,
+      name: cleanName,
+      createdBy: me._id,
+      createdAt: now,
+    });
+
+    await ctx.db.insert("conversationMembers", {
+      conversationId,
+      userId: me._id,
+      lastReadAt: now,
+    });
+
+    for (const memberId of uniqueMembers) {
+      await ctx.db.insert("conversationMembers", {
+        conversationId,
+        userId: memberId,
+        lastReadAt: 0,
+      });
+    }
+
+    return conversationId;
   },
 });
 

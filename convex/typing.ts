@@ -1,8 +1,7 @@
-// @ts-nocheck
-import { mutation } from "./_generated/server";
+import { mutation, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 
-async function getCurrentUser(ctx) {
+async function getCurrentUser(ctx: MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity?.subject) {
     return null;

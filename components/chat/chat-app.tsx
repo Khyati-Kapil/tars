@@ -13,6 +13,8 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import clsx from "clsx";
 
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
+
 type Me = {
   _id: string;
   name: string;
@@ -48,6 +50,11 @@ type ConversationMessage = {
   senderName: string;
   senderImageUrl: string;
   isMine: boolean;
+  reactions: {
+    emoji: string;
+    count: number;
+    reactedByMe: boolean;
+  }[];
 };
 
 type MessagesData = {
@@ -102,10 +109,12 @@ export function ChatApp() {
   const upsertProfile = useMutation(api.users.upsertFromClerk);
   const sendHeartbeat = useMutation(api.presence.heartbeat);
   const openDirectConversation = useMutation(api.conversations.openDirectConversation);
+  const createGroupConversation = useMutation(api.conversations.createGroupConversation);
   const markConversationRead = useMutation(api.conversations.markConversationRead);
   const sendMessage = useMutation(api.messages.send);
   const setTyping = useMutation(api.typing.setTyping);
   const deleteOwnMessage = useMutation(api.messages.deleteOwnMessage);
+  const toggleReaction = useMutation(api.messages.toggleReaction);
 
   const me = useQuery(api.users.me, {}) as Me | null | undefined;
   const conversations = useQuery(api.conversations.listForCurrentUser, {}) as
@@ -117,11 +126,18 @@ export function ChatApp() {
   const [mobileMode, setMobileMode] = useState<"list" | "chat">("list");
   const [messageText, setMessageText] = useState("");
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
+  const [showGroupCreator, setShowGroupCreator] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
+  const [groupError, setGroupError] = useState<string | null>(null);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const users = useQuery(api.users.searchUsers, {
     search: searchText,
+  }) as UserSearchResult[] | undefined;
+  const allUsers = useQuery(api.users.searchUsers, {
+    search: "",
   }) as UserSearchResult[] | undefined;
 
   const activeConversationId =
@@ -293,6 +309,23 @@ export function ChatApp() {
     }, 2_000);
   };
 
+  const onCreateGroup = async () => {
+    try {
+      setGroupError(null);
+      const conversationId = await createGroupConversation({
+        name: groupName,
+        memberIds: groupMemberIds as never,
+      });
+      setSelectedConversationId(conversationId as unknown as string);
+      setShowGroupCreator(false);
+      setGroupName("");
+      setGroupMemberIds([]);
+      setMobileMode("chat");
+    } catch (error) {
+      setGroupError(error instanceof Error ? error.message : "Failed to create group");
+    }
+  };
+
   if (!isSignedIn) {
     return (
       <main className="grid min-h-screen place-items-center bg-gradient-to-br from-cyan-100 via-white to-emerald-100 p-6">
@@ -344,9 +377,67 @@ export function ChatApp() {
               </div>
 
               <div className="h-[42%] overflow-y-auto border-b border-slate-200 p-3">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Start New Chat
-                </h3>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Start New Chat
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGroupCreator((current) => !current);
+                      setGroupError(null);
+                    }}
+                    className="rounded-lg border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    New Group
+                  </button>
+                </div>
+
+                {showGroupCreator && (
+                  <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-semibold text-slate-700">Create Group</p>
+                    <input
+                      value={groupName}
+                      onChange={(e) => setGroupName(e.target.value)}
+                      placeholder="Group name"
+                      className="mt-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:ring"
+                    />
+                    <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                      {(allUsers ?? []).map((candidate) => {
+                        const checked = groupMemberIds.includes(candidate._id);
+                        return (
+                          <label
+                            key={candidate._id}
+                            className="flex cursor-pointer items-center justify-between text-xs"
+                          >
+                            <span className="truncate pr-2">{candidate.name}</span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                setGroupMemberIds((prev) => {
+                                  if (e.target.checked) {
+                                    return [...prev, candidate._id];
+                                  }
+                                  return prev.filter((id) => id !== candidate._id);
+                                });
+                              }}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {groupError && <p className="mt-2 text-[11px] text-red-600">{groupError}</p>}
+                    <button
+                      type="button"
+                      onClick={onCreateGroup}
+                      className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      disabled={groupName.trim().length < 2 || groupMemberIds.length < 2}
+                    >
+                      Create Group
+                    </button>
+                  </div>
+                )}
 
                 {!users ? (
                   <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Loading users...</p>
@@ -550,6 +641,37 @@ export function ChatApp() {
                                 </button>
                               )}
                             </div>
+                            {!message.deleted && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {REACTION_EMOJIS.map((emoji) => {
+                                  const reaction = message.reactions.find(
+                                    (entry) => entry.emoji === emoji,
+                                  );
+                                  const count = reaction?.count ?? 0;
+                                  const reactedByMe = reaction?.reactedByMe ?? false;
+                                  return (
+                                    <button
+                                      key={`${message._id}-${emoji}`}
+                                      type="button"
+                                      onClick={() =>
+                                        toggleReaction({
+                                          messageId: message._id as never,
+                                          emoji,
+                                        })
+                                      }
+                                      className={clsx(
+                                        "rounded-full border px-2 py-0.5 text-[11px]",
+                                        reactedByMe
+                                          ? "border-cyan-500 bg-cyan-100 text-cyan-800"
+                                          : "border-slate-300 bg-white/80",
+                                      )}
+                                    >
+                                      {emoji} {count > 0 ? count : ""}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))
