@@ -951,7 +951,7 @@ export function ChatApp() {
                               )}
                             </div>
                             {!message.deleted && (
-                              <div className="mt-2 flex items-center gap-1.5">
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
                                 {message.reactions.map((reaction) => (
                                   <button
                                     key={`${message._id}-${reaction.emoji}`}
@@ -973,45 +973,44 @@ export function ChatApp() {
                                   </button>
                                 ))}
 
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setReactionMenuForMessageId((prev) =>
-                                        prev === (message._id as unknown as string)
-                                          ? null
-                                          : (message._id as unknown as string),
-                                      )
-                                    }
-                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-slate-800/80 text-slate-300 transition hover:bg-slate-700"
-                                    aria-label="Add reaction"
-                                  >
-                                    <Smile className="h-3.5 w-3.5" />
-                                  </button>
-
-                                  {reactionMenuForMessageId === (message._id as unknown as string) && (
-                                    <div className="absolute bottom-8 right-0 z-20 flex items-center gap-1 rounded-full border border-slate-600 bg-slate-900/95 p-1 shadow-xl">
-                                      {REACTION_EMOJIS.map((emoji) => (
-                                        <button
-                                          key={`${message._id}-picker-${emoji}`}
-                                          type="button"
-                                          onClick={() => {
-                                            void toggleReaction({
-                                              messageId: message._id as never,
-                                              emoji,
-                                            });
-                                            setReactionMenuForMessageId(null);
-                                          }}
-                                          className="rounded-full px-1.5 py-0.5 text-sm transition hover:bg-slate-700"
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setReactionMenuForMessageId((prev) =>
+                                      prev === (message._id as unknown as string)
+                                        ? null
+                                        : (message._id as unknown as string),
+                                    )
+                                  }
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-slate-800/80 text-slate-300 transition hover:bg-slate-700"
+                                  aria-label="Add reaction"
+                                >
+                                  <Smile className="h-3.5 w-3.5" />
+                                </button>
                               </div>
                             )}
+
+                            {!message.deleted &&
+                              reactionMenuForMessageId === (message._id as unknown as string) && (
+                                <div className="mt-1 flex w-fit flex-wrap items-center gap-1 rounded-full border border-slate-600 bg-slate-900/95 p-1 shadow-xl">
+                                  {REACTION_EMOJIS.map((emoji) => (
+                                    <button
+                                      key={`${message._id}-picker-${emoji}`}
+                                      type="button"
+                                      onClick={() => {
+                                        void toggleReaction({
+                                          messageId: message._id as never,
+                                          emoji,
+                                        });
+                                        setReactionMenuForMessageId(null);
+                                      }}
+                                      className="rounded-full px-1.5 py-0.5 text-sm transition hover:bg-slate-700"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                           </div>
                         </div>
                       ))
