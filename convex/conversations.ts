@@ -3,6 +3,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import type { Id } from "./_generated/dataModel";
 
 type Ctx = QueryCtx | MutationCtx;
+const MESSAGE_PAYLOAD_PREFIX = "__CHAT_PAYLOAD__";
 
 async function getCurrentUser(ctx: Ctx) {
   const identity = await ctx.auth.getUserIdentity();
@@ -18,6 +19,30 @@ async function getCurrentUser(ctx: Ctx) {
 
 function sortPair(idOne: Id<"users">, idTwo: Id<"users">) {
   return String(idOne) < String(idTwo) ? [idOne, idTwo] : [idTwo, idOne];
+}
+
+function toConversationPreview(raw: string) {
+  if (!raw.startsWith(MESSAGE_PAYLOAD_PREFIX)) {
+    return raw;
+  }
+
+  try {
+    const parsed = JSON.parse(raw.slice(MESSAGE_PAYLOAD_PREFIX.length)) as {
+      text?: string;
+      attachment?: { name?: string; type?: string };
+    };
+
+    if (!parsed.attachment) {
+      return parsed.text ?? "";
+    }
+
+    const attachmentLabel = parsed.attachment.type?.startsWith("image/")
+      ? "Photo"
+      : `Attachment: ${parsed.attachment.name ?? "file"}`;
+    return parsed.text ? `${attachmentLabel} • ${parsed.text}` : attachmentLabel;
+  } catch {
+    return raw;
+  }
 }
 
 export const openDirectConversation = mutation({
@@ -212,7 +237,9 @@ export const listForCurrentUser = query({
         unreadCount,
         latestMessage: latestMessage
           ? {
-              body: latestMessage.deleted ? "This message was deleted" : latestMessage.body,
+              body: latestMessage.deleted
+                ? "This message was deleted"
+                : toConversationPreview(latestMessage.body),
               createdAt: latestMessage.createdAt,
               deleted: latestMessage.deleted,
             }

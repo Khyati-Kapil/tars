@@ -9,12 +9,60 @@ import {
 } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { format } from "date-fns";
 import clsx from "clsx";
 import Image from "next/image";
+import { Paperclip, UserPlus, UsersRound, X } from "lucide-react";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
+const MESSAGE_PAYLOAD_PREFIX = "__CHAT_PAYLOAD__";
+const CHAT_THEME_STORAGE_KEY = "tars-chat-theme";
+
+type ChatThemeKey = "graphite" | "carbon" | "ash" | "smoke";
+
+const CHAT_THEMES: Record<
+  ChatThemeKey,
+  { label: string; previewClass: string; style: CSSProperties }
+> = {
+  graphite: {
+    label: "Graphite",
+    previewClass: "bg-gradient-to-br from-zinc-700 via-zinc-800 to-black",
+    style: {
+      backgroundColor: "#0b0d12",
+      backgroundImage:
+        "radial-gradient(circle at 12% 18%, rgba(255,255,255,0.05), transparent 34%), radial-gradient(circle at 84% 8%, rgba(255,255,255,0.04), transparent 28%), linear-gradient(180deg, #090b10 0%, #0f1218 100%)",
+    },
+  },
+  carbon: {
+    label: "Carbon",
+    previewClass: "bg-gradient-to-br from-neutral-600 via-neutral-800 to-black",
+    style: {
+      backgroundColor: "#0a0a0a",
+      backgroundImage:
+        "linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.03) 50%, rgba(255,255,255,0.03) 75%, transparent 75%, transparent), linear-gradient(180deg, #090909 0%, #111111 100%)",
+      backgroundSize: "28px 28px, cover",
+    },
+  },
+  ash: {
+    label: "Ash",
+    previewClass: "bg-gradient-to-br from-slate-600 via-slate-800 to-zinc-900",
+    style: {
+      backgroundColor: "#0f1115",
+      backgroundImage:
+        "radial-gradient(circle at 10% 90%, rgba(255,255,255,0.04), transparent 35%), radial-gradient(circle at 90% 0%, rgba(255,255,255,0.04), transparent 32%), linear-gradient(180deg, #0e1116 0%, #161b22 100%)",
+    },
+  },
+  smoke: {
+    label: "Smoke",
+    previewClass: "bg-gradient-to-br from-zinc-500 via-zinc-700 to-zinc-900",
+    style: {
+      backgroundColor: "#101215",
+      backgroundImage:
+        "repeating-linear-gradient(0deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 1px, transparent 1px, transparent 9px), linear-gradient(180deg, #0f1216 0%, #181c23 100%)",
+    },
+  },
+};
 
 type Me = {
   _id: string;
@@ -63,6 +111,80 @@ type MessagesData = {
   typingUserName: string | null;
   messages: ConversationMessage[];
 };
+
+type AttachmentPayload = {
+  name: string;
+  sizeKb: number;
+  type: string;
+  dataUrl?: string;
+};
+
+type ParsedMessagePayload = {
+  text: string;
+  attachment?: AttachmentPayload;
+};
+
+function formatFileSize(sizeKb: number) {
+  if (sizeKb >= 1024) {
+    return `${(sizeKb / 1024).toFixed(1)} MB`;
+  }
+  return `${sizeKb} KB`;
+}
+
+function parseMessagePayload(raw: string): ParsedMessagePayload {
+  if (!raw.startsWith(MESSAGE_PAYLOAD_PREFIX)) {
+    return { text: raw };
+  }
+
+  try {
+    const parsed = JSON.parse(
+      raw.slice(MESSAGE_PAYLOAD_PREFIX.length),
+    ) as ParsedMessagePayload;
+    return {
+      text: parsed.text ?? "",
+      attachment: parsed.attachment,
+    };
+  } catch {
+    return { text: raw };
+  }
+}
+
+function buildMessagePayload(text: string, attachment?: AttachmentPayload) {
+  if (!attachment) {
+    return text;
+  }
+
+  return `${MESSAGE_PAYLOAD_PREFIX}${JSON.stringify({ text, attachment })}`;
+}
+
+function getMessagePreview(raw: string) {
+  const parsed = parseMessagePayload(raw);
+  if (!parsed.attachment) {
+    return parsed.text || "No messages yet";
+  }
+
+  const attachmentLabel = parsed.attachment.type.startsWith("image/")
+    ? "Photo"
+    : `Attachment: ${parsed.attachment.name}`;
+  return parsed.text ? `${attachmentLabel} • ${parsed.text}` : attachmentLabel;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function getInitialChatTheme(): ChatThemeKey {
+  if (typeof window === "undefined") {
+    return "graphite";
+  }
+  const savedTheme = localStorage.getItem(CHAT_THEME_STORAGE_KEY) as ChatThemeKey | null;
+  return savedTheme && savedTheme in CHAT_THEMES ? savedTheme : "graphite";
+}
 
 function formatMessageTime(timestamp: number) {
   const date = new Date(timestamp);
@@ -130,12 +252,15 @@ export function ChatApp() {
   const [mobileMode, setMobileMode] = useState<"list" | "chat">("list");
   const [messageText, setMessageText] = useState("");
   const [failedMessage, setFailedMessage] = useState<string | null>(null);
-  const [showGroupCreator, setShowGroupCreator] = useState(false);
+  const [chatStartMode, setChatStartMode] = useState<"direct" | "group">("direct");
   const [groupName, setGroupName] = useState("");
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [chatTheme, setChatTheme] = useState<ChatThemeKey>(getInitialChatTheme);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const users = useQuery(api.users.searchUsers, {
     search: searchText,
@@ -151,6 +276,7 @@ export function ChatApp() {
     api.messages.listByConversation,
     activeConversationId ? { conversationId: activeConversationId as never } : "skip",
   ) as MessagesData | null | undefined;
+  const directUsers = users ?? [];
 
   useEffect(() => {
     if (!user) return;
@@ -193,10 +319,15 @@ export function ChatApp() {
     void markConversationRead({ conversationId: activeConversationId as never });
   }, [activeConversationId, markConversationRead, messagesData?.messages.length]);
 
+  useEffect(() => {
+    localStorage.setItem(CHAT_THEME_STORAGE_KEY, chatTheme);
+  }, [chatTheme]);
+
   const selectedConversation = useMemo(
     () => conversations?.find((c) => c._id === activeConversationId) ?? null,
     [activeConversationId, conversations],
   );
+  const activeChatTheme = CHAT_THEMES[chatTheme];
 
   const listContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
@@ -255,9 +386,30 @@ export function ChatApp() {
   const submitMessage = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!activeConversationId || !messageText.trim()) return;
+    if (!activeConversationId) return;
 
-    const payload = messageText;
+    const text = messageText.trim();
+    let attachmentPayload: AttachmentPayload | undefined;
+
+    if (attachedFile) {
+      attachmentPayload = {
+        name: attachedFile.name,
+        sizeKb: Math.max(1, Math.round(attachedFile.size / 1024)),
+        type: attachedFile.type || "application/octet-stream",
+      };
+
+      if (attachedFile.size <= 1_500 * 1024) {
+        try {
+          attachmentPayload.dataUrl = await readFileAsDataUrl(attachedFile);
+        } catch {
+          attachmentPayload.dataUrl = undefined;
+        }
+      }
+    }
+
+    const payload = buildMessagePayload(text, attachmentPayload);
+    if (!payload) return;
+
     setMessageText("");
 
     try {
@@ -265,6 +417,7 @@ export function ChatApp() {
         conversationId: activeConversationId as never,
         body: payload,
       });
+      setAttachedFile(null);
       setFailedMessage(null);
       await setTyping({
         conversationId: activeConversationId as never,
@@ -272,7 +425,7 @@ export function ChatApp() {
       });
     } catch {
       setFailedMessage(payload);
-      setMessageText(payload);
+      setMessageText(text);
     }
   };
 
@@ -320,7 +473,7 @@ export function ChatApp() {
         memberIds: groupMemberIds as never,
       });
       setSelectedConversationId(conversationId as unknown as string);
-      setShowGroupCreator(false);
+      setChatStartMode("direct");
       setGroupName("");
       setGroupMemberIds([]);
       setMobileMode("chat");
@@ -331,20 +484,20 @@ export function ChatApp() {
 
   if (!isSignedIn) {
     return (
-      <main className="grid min-h-screen place-items-center bg-gradient-to-br from-cyan-100 via-white to-emerald-100 p-6">
-        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-xl">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Tars Live Chat</h1>
-          <p className="mt-3 text-sm text-slate-600">
+      <main className="grid min-h-screen place-items-center bg-[#07090f] p-6">
+        <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900/85 p-8 shadow-2xl">
+          <h1 className="text-3xl font-bold tracking-tight text-slate-100">Tars Live Chat</h1>
+          <p className="mt-3 text-sm text-slate-300">
             Real-time direct messaging with online presence, unread counts, and typing indicators.
           </p>
           <div className="mt-8 flex flex-col gap-3">
             <SignInButton mode="modal">
-              <button className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-700">
+              <button className="rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-white">
                 Sign In
               </button>
             </SignInButton>
             <SignUpButton mode="modal">
-              <button className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-900 transition hover:bg-slate-50">
+              <button className="rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800">
                 Create Account
               </button>
             </SignUpButton>
@@ -355,19 +508,19 @@ export function ChatApp() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 p-3 sm:p-6">
-          <div className="mx-auto flex h-[calc(100vh-1.5rem)] max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl sm:h-[calc(100vh-3rem)]">
+    <main className="h-screen w-screen bg-transparent p-0">
+          <div className="flex h-full w-full overflow-hidden border border-slate-800 bg-[#0c0f15]">
             <aside
               className={clsx(
-                "h-full w-full border-r border-slate-200 md:block md:w-[340px]",
+                "h-full w-full border-r border-slate-800 bg-[#11141b] md:block md:w-[340px]",
                 mobileMode === "chat" ? "hidden" : "block",
               )}
             >
-              <div className="border-b border-slate-200 p-4">
+              <div className="border-b border-slate-800 p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-slate-900">Messages</h2>
-                    <p className="text-xs text-slate-500">{me?.name ?? "Loading..."}</p>
+                    <h2 className="text-lg font-semibold text-slate-100">Messages</h2>
+                    <p className="text-xs text-slate-400">{me?.name ?? "Loading..."}</p>
                   </div>
                   <UserButton />
                 </div>
@@ -375,37 +528,62 @@ export function ChatApp() {
                   value={searchText}
                   onChange={(e) => setSearchText(e.target.value)}
                   placeholder="Search users..."
-                  className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-300 placeholder:text-slate-400 focus:ring"
+                  className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-slate-400 placeholder:text-slate-500 focus:ring"
                 />
               </div>
 
-              <div className="h-[42%] overflow-y-auto border-b border-slate-200 p-3">
+              <div className="h-[42%] overflow-y-auto border-b border-slate-800 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Start New Chat
                   </h3>
+                </div>
+
+                <div className="mb-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => {
-                      setShowGroupCreator((current) => !current);
+                      setChatStartMode("direct");
                       setGroupError(null);
                     }}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                    className={clsx(
+                      "inline-flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition",
+                      chatStartMode === "direct"
+                        ? "border-slate-500 bg-slate-700 text-slate-100"
+                        : "border-slate-700 text-slate-300 hover:bg-slate-800",
+                    )}
                   >
-                    New Group
+                    <UserPlus className="h-3.5 w-3.5" />
+                    New Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChatStartMode("group");
+                      setGroupError(null);
+                    }}
+                    className={clsx(
+                      "inline-flex items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition",
+                      chatStartMode === "group"
+                        ? "border-slate-500 bg-slate-700 text-slate-100"
+                        : "border-slate-700 text-slate-300 hover:bg-slate-800",
+                    )}
+                  >
+                    <UsersRound className="h-3.5 w-3.5" />
+                    Make Group
                   </button>
                 </div>
 
-                {showGroupCreator && (
-                  <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="text-xs font-semibold text-slate-700">Create Group</p>
+                {chatStartMode === "group" && (
+                  <div className="mb-3 rounded-xl border border-slate-700 bg-slate-900 p-3">
+                    <p className="text-xs font-semibold text-slate-300">Create Group</p>
                     <input
                       value={groupName}
                       onChange={(e) => setGroupName(e.target.value)}
                       placeholder="Group name"
-                      className="mt-2 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:ring"
+                      className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100 outline-none focus:ring"
                     />
-                    <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+                    <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-700 p-2">
                       {(allUsers ?? []).map((candidate) => {
                         const checked = groupMemberIds.includes(candidate._id);
                         return (
@@ -434,7 +612,7 @@ export function ChatApp() {
                     <button
                       type="button"
                       onClick={onCreateGroup}
-                      className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      className="mt-2 w-full rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-900 disabled:opacity-50"
                       disabled={groupName.trim().length < 2 || groupMemberIds.length < 2}
                     >
                       Create Group
@@ -442,20 +620,20 @@ export function ChatApp() {
                   </div>
                 )}
 
-                {!users ? (
-                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Loading users...</p>
-                ) : users.length === 0 ? (
-                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                {chatStartMode === "direct" && !users ? (
+                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">Loading users...</p>
+                ) : chatStartMode === "direct" && directUsers.length === 0 ? (
+                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
                     {searchText ? "No users found." : "No other users available yet."}
                   </p>
-                ) : (
+                ) : chatStartMode === "direct" ? (
                   <ul className="space-y-2">
-                    {users.map((chatUser) => (
+                    {directUsers.map((chatUser) => (
                       <li key={chatUser._id}>
                         <button
                           type="button"
                           onClick={() => openConversationWithUser(chatUser._id as unknown as string)}
-                          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-slate-50"
+                          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-slate-800"
                         >
                           <div className="relative">
                             <Avatar name={chatUser.name} imageUrl={chatUser.imageUrl} />
@@ -467,24 +645,28 @@ export function ChatApp() {
                             />
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-slate-900">{chatUser.name}</p>
-                            <p className="truncate text-xs text-slate-500">{chatUser.email}</p>
+                            <p className="truncate text-sm font-medium text-slate-100">{chatUser.name}</p>
+                            <p className="truncate text-xs text-slate-400">{chatUser.email}</p>
                           </div>
                         </button>
                       </li>
                     ))}
                   </ul>
+                ) : (
+                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
+                    Select members and create a group.
+                  </p>
                 )}
               </div>
 
               <div className="h-[58%] overflow-y-auto p-3">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Conversations
                 </h3>
                 {!conversations ? (
-                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Loading conversations...</p>
+                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">Loading conversations...</p>
                 ) : conversations.length === 0 ? (
-                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
                     No conversations yet. Start one from the user list above.
                   </p>
                 ) : (
@@ -500,8 +682,8 @@ export function ChatApp() {
                           className={clsx(
                             "flex w-full items-center gap-3 rounded-xl p-2 text-left transition",
                             activeConversationId === conversation._id
-                              ? "bg-cyan-50"
-                              : "hover:bg-slate-50",
+                              ? "bg-slate-700/60 ring-1 ring-slate-600"
+                              : "hover:bg-slate-800",
                           )}
                         >
                           <div className="relative">
@@ -520,14 +702,16 @@ export function ChatApp() {
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-slate-900">{conversation.title}</p>
-                            <p className="truncate text-xs text-slate-500">
-                              {conversation.latestMessage?.body ?? "No messages yet"}
+                            <p className="truncate text-sm font-medium text-slate-100">{conversation.title}</p>
+                            <p className="truncate text-xs text-slate-400">
+                              {conversation.latestMessage
+                                ? getMessagePreview(conversation.latestMessage.body)
+                                : "No messages yet"}
                             </p>
                           </div>
 
                           {conversation.unreadCount > 0 && (
-                            <span className="rounded-full bg-cyan-500 px-2 py-0.5 text-xs font-semibold text-white">
+                            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-900">
                               {conversation.unreadCount}
                             </span>
                           )}
@@ -546,22 +730,25 @@ export function ChatApp() {
               )}
             >
               {!activeConversationId || !selectedConversation ? (
-                <div className="grid h-full place-items-center p-6 text-center">
+                <div
+                  className="grid h-full place-items-center p-6 text-center"
+                  style={activeChatTheme.style}
+                >
                   <div>
-                    <h3 className="text-lg font-semibold text-slate-900">Pick a conversation</h3>
-                    <p className="mt-2 text-sm text-slate-500">
+                    <h3 className="text-lg font-semibold text-slate-100">Pick a conversation</h3>
+                    <p className="mt-2 text-sm text-slate-400">
                       Select a chat from the sidebar or start a new one.
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="flex h-full flex-col">
-                  <header className="flex items-center justify-between border-b border-slate-200 p-4">
+                <div className="flex h-full flex-col" style={activeChatTheme.style}>
+                  <header className="flex items-center justify-between border-b border-slate-800 p-4">
                     <div className="flex items-center gap-3">
                       <button
                         type="button"
                         onClick={() => setMobileMode("list")}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs md:hidden"
+                        className="rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-200 md:hidden"
                       >
                         Back
                       </button>
@@ -580,8 +767,8 @@ export function ChatApp() {
                         )}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-slate-900">{selectedConversation.title}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-sm font-semibold text-slate-100">{selectedConversation.title}</p>
+                        <p className="text-xs text-slate-400">
                           {selectedConversation.isGroup
                             ? `${selectedConversation.memberCount} members`
                             : selectedConversation.isOtherOnline
@@ -590,15 +777,38 @@ export function ChatApp() {
                         </p>
                       </div>
                     </div>
+                    <div className="hidden items-center gap-2 sm:flex">
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                        Theme
+                      </span>
+                      {(Object.keys(CHAT_THEMES) as ChatThemeKey[]).map((themeKey) => (
+                        <button
+                          key={themeKey}
+                          type="button"
+                          onClick={() => setChatTheme(themeKey)}
+                          title={CHAT_THEMES[themeKey].label}
+                          className={clsx(
+                            "h-5 w-5 rounded-full border transition",
+                            CHAT_THEMES[themeKey].previewClass,
+                            chatTheme === themeKey
+                              ? "border-slate-200 ring-1 ring-slate-300"
+                              : "border-slate-600 hover:border-slate-400",
+                          )}
+                        />
+                      ))}
+                    </div>
                   </header>
 
-                  <div ref={listContainerRef} className="relative flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
+                  <div
+                    ref={listContainerRef}
+                    className="relative flex-1 space-y-3 overflow-y-auto p-4"
+                  >
                     {!messagesData ? (
-                      <p className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">
+                      <p className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-400">
                         Loading messages...
                       </p>
                     ) : messagesData.messages.length === 0 ? (
-                      <p className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-500">
+                      <p className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-400">
                         No messages yet. Say hello to start the conversation.
                       </p>
                     ) : (
@@ -614,20 +824,79 @@ export function ChatApp() {
                             className={clsx(
                               "max-w-[75%] rounded-2xl px-3 py-2",
                               message.isMine
-                                ? "bg-slate-900 text-white"
-                                : "border border-slate-200 bg-white text-slate-900",
+                                ? "bg-slate-200 text-slate-900"
+                                : "border border-slate-700 bg-slate-900 text-slate-100",
                             )}
                           >
-                            {!message.isMine && (
-                              <p className="mb-1 text-xs font-semibold text-slate-500">
-                                {message.senderName}
-                              </p>
-                            )}
-                            {message.deleted ? (
-                              <p className="text-sm italic text-slate-400">This message was deleted</p>
-                            ) : (
-                              <p className="text-sm break-words">{message.body}</p>
-                            )}
+                            {(() => {
+                              const parsedPayload = parseMessagePayload(message.body);
+                              return (
+                                <>
+                                  {!message.isMine && (
+                                    <p className="mb-1 text-xs font-semibold text-slate-500">
+                                      {message.senderName}
+                                    </p>
+                                  )}
+
+                                  {message.deleted ? (
+                                    <p className="text-sm italic text-slate-400">This message was deleted</p>
+                                  ) : (
+                                    <>
+                                      {parsedPayload.attachment ? (
+                                        <div
+                                          className={clsx(
+                                            "mb-2 overflow-hidden rounded-xl border",
+                                            message.isMine
+                                              ? "border-slate-500/60 bg-slate-100"
+                                              : "border-slate-600 bg-slate-800/70",
+                                          )}
+                                        >
+                                          {parsedPayload.attachment.dataUrl &&
+                                          parsedPayload.attachment.type.startsWith("image/") ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img
+                                              src={parsedPayload.attachment.dataUrl}
+                                              alt={parsedPayload.attachment.name}
+                                              className="max-h-60 w-full object-cover"
+                                            />
+                                          ) : null}
+                                          <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+                                            <div className="flex min-w-0 items-center gap-2">
+                                              <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                                              <div className="min-w-0">
+                                                <p className="truncate font-semibold">
+                                                  {parsedPayload.attachment.name}
+                                                </p>
+                                                <p className="opacity-80">
+                                                  {formatFileSize(parsedPayload.attachment.sizeKb)}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            {parsedPayload.attachment.dataUrl ? (
+                                              <a
+                                                href={parsedPayload.attachment.dataUrl}
+                                                download={parsedPayload.attachment.name}
+                                                className={clsx(
+                                                  "shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold",
+                                                  message.isMine
+                                                    ? "border-slate-500 text-slate-700"
+                                                    : "border-slate-500 text-slate-200",
+                                                )}
+                                              >
+                                                Download
+                                              </a>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                      {parsedPayload.text ? (
+                                        <p className="text-sm break-words">{parsedPayload.text}</p>
+                                      ) : null}
+                                    </>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <div className="mt-1 flex items-center gap-2 text-[11px] opacity-75">
                               <span>{formatMessageTime(message.createdAt)}</span>
                               {message.isMine && !message.deleted && (
@@ -664,9 +933,9 @@ export function ChatApp() {
                                       }
                                       className={clsx(
                                         "rounded-full border px-2 py-0.5 text-[11px]",
-                                        reactedByMe
-                                          ? "border-cyan-500 bg-cyan-100 text-cyan-800"
-                                          : "border-slate-300 bg-white/80",
+                                      reactedByMe
+                                          ? "border-slate-400 bg-slate-700 text-slate-100"
+                                          : "border-slate-600 bg-slate-800/80 text-slate-300",
                                       )}
                                     >
                                       {emoji} {count > 0 ? count : ""}
@@ -681,7 +950,7 @@ export function ChatApp() {
                     )}
 
                     {messagesData?.typingUserName && (
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-slate-400">
                         {messagesData.typingUserName} is typing...
                       </div>
                     )}
@@ -695,14 +964,14 @@ export function ChatApp() {
                           el.scrollTop = el.scrollHeight;
                           setShowNewMessagesButton(false);
                         }}
-                        className="sticky bottom-3 mx-auto block rounded-full bg-slate-900 px-4 py-1 text-xs font-semibold text-white"
+                        className="sticky bottom-3 mx-auto block rounded-full bg-slate-200 px-4 py-1 text-xs font-semibold text-slate-900"
                       >
                         New messages ↓
                       </button>
                     )}
                   </div>
 
-                  <form onSubmit={submitMessage} className="border-t border-slate-200 p-3">
+                  <form onSubmit={submitMessage} className="border-t border-slate-800 bg-[#141821] p-3">
                     {failedMessage && (
                       <div className="mb-2 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                         <span>Message failed to send.</span>
@@ -715,17 +984,46 @@ export function ChatApp() {
                         </button>
                       </div>
                     )}
+                    {attachedFile && (
+                      <div className="mb-2 inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-300">
+                        <Paperclip className="h-3.5 w-3.5" />
+                        <span className="max-w-[240px] truncate">{attachedFile.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setAttachedFile(null)}
+                          className="rounded p-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <div className="flex gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => {
+                          setAttachedFile(e.target.files?.[0] ?? null);
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-slate-300 transition hover:bg-slate-800"
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </button>
                       <input
                         value={messageText}
                         onChange={(e) => onMessageInputChange(e.target.value)}
                         placeholder="Type a message"
-                        className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none ring-cyan-300 focus:ring"
+                        className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none ring-slate-500 placeholder:text-slate-500 focus:ring"
                       />
                       <button
                         type="submit"
-                        disabled={!messageText.trim()}
-                        className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={!messageText.trim() && !attachedFile}
+                        className="rounded-xl bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Send
                       </button>
