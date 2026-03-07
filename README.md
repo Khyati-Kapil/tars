@@ -67,16 +67,3 @@ npx convex dev
 npm run dev
 ```
 
-## Deployment
-
-Deploy on Vercel and add the same environment variables in project settings.
-
-## Loom Video Checklist
-
-Record a 5-minute Loom video and include:
-
-1. 30-second self introduction
-2. Camera on, face visible
-3. Explain one feature deeply in code
-4. Demo app in browser
-5. Make one live code change and show result
