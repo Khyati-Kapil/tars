@@ -13,7 +13,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties } f
 import { format } from "date-fns";
 import clsx from "clsx";
 import Image from "next/image";
-import { Paperclip, Smile, UserPlus, UsersRound, X } from "lucide-react";
+import { Loader2, MessageCircleOff, Paperclip, SearchX, Smile, UserPlus, UsersRound, X } from "lucide-react";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
 const MESSAGE_PAYLOAD_PREFIX = "__CHAT_PAYLOAD__";
@@ -228,6 +228,25 @@ function Avatar({ name, imageUrl }: { name: string; imageUrl: string }) {
   );
 }
 
+function SidebarSkeletonList() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={`skeleton-${index}`}
+          className="flex animate-pulse items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/60 p-2"
+        >
+          <div className="h-9 w-9 rounded-full bg-slate-700/80" />
+          <div className="min-w-0 flex-1">
+            <div className="h-3 w-24 rounded bg-slate-700/80" />
+            <div className="mt-2 h-2.5 w-36 rounded bg-slate-800/80" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ChatApp() {
   const { isSignedIn } = useAuth();
   const { user } = useUser();
@@ -379,6 +398,7 @@ export function ChatApp() {
     try {
       const conversationId = await openDirectConversation({ otherUserId: otherUserId as never });
       setSelectedConversationId(conversationId as unknown as string);
+      setReactionMenuForMessageId(null);
       setMobileMode("chat");
       setSearchText("");
     } catch (error) {
@@ -592,12 +612,13 @@ export function ChatApp() {
                         return (
                           <label
                             key={candidate._id}
-                            className="flex cursor-pointer items-center justify-between text-xs"
+                            className="flex cursor-pointer items-center justify-between rounded-md px-1.5 py-1 text-xs text-slate-200 transition hover:bg-slate-800/70"
                           >
-                            <span className="truncate pr-2">{candidate.name}</span>
+                            <span className="truncate pr-2 font-medium">{candidate.name}</span>
                             <input
                               type="checkbox"
                               checked={checked}
+                              className="h-4 w-4 accent-slate-300"
                               onChange={(e) => {
                                 setGroupMemberIds((prev) => {
                                   if (e.target.checked) {
@@ -624,11 +645,18 @@ export function ChatApp() {
                 )}
 
                 {chatStartMode === "direct" && !users ? (
-                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">Loading users...</p>
+                  <SidebarSkeletonList />
                 ) : chatStartMode === "direct" && directUsers.length === 0 ? (
-                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
-                    {searchText ? "No users found." : "No other users available yet."}
-                  </p>
+                  <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-center">
+                    {searchText ? (
+                      <SearchX className="mx-auto h-5 w-5 text-slate-500" />
+                    ) : (
+                      <MessageCircleOff className="mx-auto h-5 w-5 text-slate-500" />
+                    )}
+                    <p className="mt-2 text-sm text-slate-400">
+                      {searchText ? "No users found." : "No other users available yet."}
+                    </p>
+                  </div>
                 ) : chatStartMode === "direct" ? (
                   <ul className="space-y-2">
                     {directUsers.map((chatUser) => (
@@ -636,7 +664,7 @@ export function ChatApp() {
                         <button
                           type="button"
                           onClick={() => openConversationWithUser(chatUser._id as unknown as string)}
-                          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-slate-800"
+                          className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all duration-150 hover:bg-slate-800"
                         >
                           <div className="relative">
                             <Avatar name={chatUser.name} imageUrl={chatUser.imageUrl} />
@@ -683,11 +711,15 @@ export function ChatApp() {
                   Conversations
                 </h3>
                 {!conversations ? (
-                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">Loading conversations...</p>
+                  <SidebarSkeletonList />
                 ) : conversations.length === 0 ? (
-                  <p className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
-                    No conversations yet. Start one from the user list above.
-                  </p>
+                  <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-4 text-center">
+                    <MessageCircleOff className="mx-auto h-5 w-5 text-slate-500" />
+                    <p className="mt-2 text-sm text-slate-300">No conversations yet</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Start a direct chat from the list above.
+                    </p>
+                  </div>
                 ) : (
                   <ul className="space-y-2">
                     {conversations.map((conversation) => (
@@ -696,10 +728,11 @@ export function ChatApp() {
                           type="button"
                           onClick={() => {
                             setSelectedConversationId(conversation._id as unknown as string);
+                            setReactionMenuForMessageId(null);
                             setMobileMode("chat");
                           }}
                           className={clsx(
-                            "flex w-full items-center gap-3 rounded-xl p-2 text-left transition",
+                            "flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all duration-150",
                             activeConversationId === conversation._id
                               ? "bg-slate-700/60 ring-1 ring-slate-600"
                               : "hover:bg-slate-800",
@@ -771,11 +804,22 @@ export function ChatApp() {
                   className="grid h-full place-items-center p-6 text-center"
                   style={activeChatTheme.style}
                 >
-                  <div>
+                  <div className="max-w-sm rounded-2xl border border-slate-700/70 bg-slate-900/70 p-6">
+                    <MessageCircleOff className="mx-auto h-6 w-6 text-slate-500" />
                     <h3 className="text-lg font-semibold text-slate-100">Pick a conversation</h3>
                     <p className="mt-2 text-sm text-slate-400">
                       Select a chat from the sidebar or start a new one.
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMode("list");
+                        setChatStartMode("direct");
+                      }}
+                      className="mt-4 rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-800"
+                    >
+                      Start New Chat
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -838,16 +882,21 @@ export function ChatApp() {
 
                   <div
                     ref={listContainerRef}
-                    className="relative flex-1 space-y-3 overflow-y-auto p-4"
+                    className="relative flex-1 space-y-3 overflow-y-auto p-4 md:p-5"
                   >
                     {!messagesData ? (
-                      <p className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-400">
+                      <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-sm text-slate-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
                         Loading messages...
-                      </p>
+                      </div>
                     ) : messagesData.messages.length === 0 ? (
-                      <p className="rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm text-slate-400">
-                        No messages yet. Say hello to start the conversation.
-                      </p>
+                      <div className="mx-auto mt-16 max-w-md rounded-2xl border border-slate-700/80 bg-slate-900/75 p-5 text-center">
+                        <MessageCircleOff className="mx-auto h-6 w-6 text-slate-500" />
+                        <p className="mt-3 text-sm font-medium text-slate-200">No messages yet</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Say hello to start the conversation.
+                        </p>
+                      </div>
                     ) : (
                       messagesData.messages.map((message) => (
                         <div
@@ -859,7 +908,7 @@ export function ChatApp() {
                         >
                           <div
                             className={clsx(
-                              "max-w-[75%] rounded-2xl px-3 py-2",
+                              "max-w-[88%] rounded-2xl px-3 py-2 md:max-w-[75%]",
                               message.isMine
                                 ? "bg-slate-200 text-slate-900"
                                 : "border border-slate-700 bg-slate-900 text-slate-100",
@@ -1043,7 +1092,10 @@ export function ChatApp() {
                     )}
                   </div>
 
-                  <form onSubmit={submitMessage} className="border-t border-slate-800 bg-[#141821] p-3">
+                  <form
+                    onSubmit={submitMessage}
+                    className="border-t border-slate-800 bg-[#141821]/95 p-3 pb-[calc(env(safe-area-inset-bottom)+12px)] backdrop-blur"
+                  >
                     {failedMessage && (
                       <div className="mb-2 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                         <span>Message failed to send.</span>
