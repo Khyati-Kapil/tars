@@ -137,9 +137,6 @@ export const createGroupConversation = mutation({
     }
 
     const cleanName = args.name.trim();
-    if (cleanName.length < 2) {
-      throw new Error("Group name must be at least 2 characters");
-    }
 
     const uniqueMembers = [...new Set(args.memberIds)].filter((id) => id !== me._id);
     if (uniqueMembers.length < 1) {
@@ -147,9 +144,11 @@ export const createGroupConversation = mutation({
     }
 
     const now = Date.now();
+    const finalGroupName =
+      cleanName.length >= 2 ? cleanName : `New Group ${new Date(now).toLocaleDateString()}`;
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: true,
-      name: cleanName,
+      name: finalGroupName,
       createdBy: me._id,
       createdAt: now,
     });

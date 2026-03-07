@@ -282,6 +282,7 @@ export function ChatApp() {
   const [groupName, setGroupName] = useState("");
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [chatTheme, setChatTheme] = useState<ChatThemeKey>(getInitialChatTheme);
   const [reactionMenuForMessageId, setReactionMenuForMessageId] = useState<string | null>(null);
@@ -295,6 +296,10 @@ export function ChatApp() {
   const allUsers = useQuery(api.users.searchUsers, {
     search: "",
   }) as UserSearchResult[] | undefined;
+  const selectedGroupMembers = useMemo(
+    () => (allUsers ?? []).filter((userItem) => groupMemberIds.includes(userItem._id)),
+    [allUsers, groupMemberIds],
+  );
 
   const activeConversationId =
     selectedConversationId ?? ((conversations?.[0]?._id as unknown as string | undefined) ?? null);
@@ -497,9 +502,10 @@ export function ChatApp() {
 
   const onCreateGroup = async () => {
     try {
+      setIsCreatingGroup(true);
       setGroupError(null);
       const conversationId = await createGroupConversation({
-        name: groupName,
+        name: groupName.trim(),
         memberIds: groupMemberIds as never,
       });
       setSelectedConversationId(conversationId as unknown as string);
@@ -509,6 +515,8 @@ export function ChatApp() {
       setMobileMode("chat");
     } catch (error) {
       setGroupError(error instanceof Error ? error.message : "Failed to create group");
+    } finally {
+      setIsCreatingGroup(false);
     }
   };
 
@@ -610,7 +618,7 @@ export function ChatApp() {
                     <input
                       value={groupName}
                       onChange={(e) => setGroupName(e.target.value)}
-                      placeholder="Group name"
+                      placeholder="Group name (optional)"
                       className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-100 outline-none focus:ring"
                     />
                     <div className="mt-2 max-h-28 space-y-1 overflow-y-auto rounded-lg border border-slate-700 p-2">
@@ -639,14 +647,33 @@ export function ChatApp() {
                         );
                       })}
                     </div>
-                    {groupError && <p className="mt-2 text-[11px] text-red-600">{groupError}</p>}
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      Selected: {groupMemberIds.length}
+                    </p>
+                    {selectedGroupMembers.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {selectedGroupMembers.map((member) => (
+                          <span
+                            key={`sel-${member._id}`}
+                            className="rounded-full border border-slate-600 bg-slate-800/70 px-2 py-0.5 text-[10px] text-slate-200"
+                          >
+                            {member.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {groupError && (
+                      <p className="mt-2 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] text-red-300">
+                        {groupError}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={onCreateGroup}
                       className="mt-2 w-full rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-900 disabled:opacity-50"
-                      disabled={groupName.trim().length < 2 || groupMemberIds.length < 1}
+                      disabled={groupMemberIds.length < 1 || isCreatingGroup}
                     >
-                      Create Group
+                      {isCreatingGroup ? "Creating..." : "Create Group"}
                     </button>
                   </div>
                 )}
@@ -887,42 +914,46 @@ export function ChatApp() {
                     </div>
                   </header>
 
-                  {selectedConversation.isGroup && messagesData?.members ? (
+                  {selectedConversation.isGroup ? (
                     <div className="border-b border-slate-800/80 bg-slate-900/30 px-4 py-2">
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         Group Members
                       </p>
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {messagesData.members.map((member) => (
-                          <div
-                            key={member._id}
-                            className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1"
-                          >
-                            <div className="relative">
-                              <Avatar name={member.name} imageUrl={member.imageUrl} />
-                              <span
-                                className={clsx(
-                                  "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-slate-900",
-                                  member.isOnline ? "bg-green-500" : "bg-slate-500",
-                                )}
-                              />
+                      {!messagesData ? (
+                        <p className="text-xs text-slate-500">Loading members...</p>
+                      ) : (
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {messagesData.members.map((member) => (
+                            <div
+                              key={member._id}
+                              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1"
+                            >
+                              <div className="relative">
+                                <Avatar name={member.name} imageUrl={member.imageUrl} />
+                                <span
+                                  className={clsx(
+                                    "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-slate-900",
+                                    member.isOnline ? "bg-green-500" : "bg-slate-500",
+                                  )}
+                                />
+                              </div>
+                              <div className="pr-1">
+                                <p className="max-w-[120px] truncate text-xs font-medium text-slate-200">
+                                  {member.name}
+                                </p>
+                                <p
+                                  className={clsx(
+                                    "text-[10px]",
+                                    member.isOnline ? "text-green-400" : "text-slate-500",
+                                  )}
+                                >
+                                  {member.isOnline ? "Online" : "Offline"}
+                                </p>
+                              </div>
                             </div>
-                            <div className="pr-1">
-                              <p className="max-w-[120px] truncate text-xs font-medium text-slate-200">
-                                {member.name}
-                              </p>
-                              <p
-                                className={clsx(
-                                  "text-[10px]",
-                                  member.isOnline ? "text-green-400" : "text-slate-500",
-                                )}
-                              >
-                                {member.isOnline ? "Online" : "Offline"}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ) : null}
 
