@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import clsx from "clsx";
+import Image from "next/image";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
 
@@ -86,10 +87,13 @@ function formatMessageTime(timestamp: number) {
 function Avatar({ name, imageUrl }: { name: string; imageUrl: string }) {
   if (imageUrl) {
     return (
-      <img
+      <Image
         src={imageUrl}
         alt={name}
         className="h-9 w-9 rounded-full object-cover"
+        width={36}
+        height={36}
+        unoptimized
         referrerPolicy="no-referrer"
       />
     );
@@ -283,7 +287,6 @@ export function ChatApp() {
       setFailedMessage(null);
       setMessageText("");
     } catch {
-      // keep failed message visible
     }
   };
 
