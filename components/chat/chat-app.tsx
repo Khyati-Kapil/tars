@@ -13,7 +13,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties } f
 import { format } from "date-fns";
 import clsx from "clsx";
 import Image from "next/image";
-import { Paperclip, UserPlus, UsersRound, X } from "lucide-react";
+import { Paperclip, Smile, UserPlus, UsersRound, X } from "lucide-react";
 
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
 const MESSAGE_PAYLOAD_PREFIX = "__CHAT_PAYLOAD__";
@@ -258,6 +258,7 @@ export function ChatApp() {
   const [groupError, setGroupError] = useState<string | null>(null);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [chatTheme, setChatTheme] = useState<ChatThemeKey>(getInitialChatTheme);
+  const [reactionMenuForMessageId, setReactionMenuForMessageId] = useState<string | null>(null);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -510,7 +511,7 @@ export function ChatApp() {
   }
 
   return (
-    <main className="h-screen w-screen bg-transparent p-0">
+    <main className="h-[100dvh] w-screen bg-transparent p-0">
           <div className="flex h-full w-full overflow-hidden border border-slate-800 bg-[#0c0f15]">
             <aside
               className={clsx(
@@ -761,7 +762,7 @@ export function ChatApp() {
 
             <section
               className={clsx(
-                "h-full flex-1 md:block",
+                "h-full w-full min-h-0 flex-1 md:block",
                 mobileMode === "chat" ? "block" : "hidden",
               )}
             >
@@ -778,7 +779,7 @@ export function ChatApp() {
                   </div>
                 </div>
               ) : (
-                <div className="flex h-full flex-col" style={activeChatTheme.style}>
+                <div className="flex h-full min-h-0 flex-col" style={activeChatTheme.style}>
                   <header className="flex items-center justify-between border-b border-slate-800 p-4">
                     <div className="flex items-center gap-3">
                       <button
@@ -950,34 +951,65 @@ export function ChatApp() {
                               )}
                             </div>
                             {!message.deleted && (
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {REACTION_EMOJIS.map((emoji) => {
-                                  const reaction = message.reactions.find(
-                                    (entry) => entry.emoji === emoji,
-                                  );
-                                  const count = reaction?.count ?? 0;
-                                  const reactedByMe = reaction?.reactedByMe ?? false;
-                                  return (
-                                    <button
-                                      key={`${message._id}-${emoji}`}
-                                      type="button"
-                                      onClick={() =>
-                                        toggleReaction({
-                                          messageId: message._id as never,
-                                          emoji,
-                                        })
-                                      }
-                                      className={clsx(
-                                        "rounded-full border px-2 py-0.5 text-[11px]",
-                                      reactedByMe
-                                          ? "border-slate-400 bg-slate-700 text-slate-100"
-                                          : "border-slate-600 bg-slate-800/80 text-slate-300",
-                                      )}
-                                    >
-                                      {emoji} {count > 0 ? count : ""}
-                                    </button>
-                                  );
-                                })}
+                              <div className="mt-2 flex items-center gap-1.5">
+                                {message.reactions.map((reaction) => (
+                                  <button
+                                    key={`${message._id}-${reaction.emoji}`}
+                                    type="button"
+                                    onClick={() =>
+                                      toggleReaction({
+                                        messageId: message._id as never,
+                                        emoji: reaction.emoji,
+                                      })
+                                    }
+                                    className={clsx(
+                                      "rounded-full border px-2 py-0.5 text-[11px]",
+                                      reaction.reactedByMe
+                                        ? "border-slate-400 bg-slate-700 text-slate-100"
+                                        : "border-slate-600 bg-slate-800/80 text-slate-300",
+                                    )}
+                                  >
+                                    {reaction.emoji} {reaction.count}
+                                  </button>
+                                ))}
+
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setReactionMenuForMessageId((prev) =>
+                                        prev === (message._id as unknown as string)
+                                          ? null
+                                          : (message._id as unknown as string),
+                                      )
+                                    }
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-slate-800/80 text-slate-300 transition hover:bg-slate-700"
+                                    aria-label="Add reaction"
+                                  >
+                                    <Smile className="h-3.5 w-3.5" />
+                                  </button>
+
+                                  {reactionMenuForMessageId === (message._id as unknown as string) && (
+                                    <div className="absolute bottom-8 right-0 z-20 flex items-center gap-1 rounded-full border border-slate-600 bg-slate-900/95 p-1 shadow-xl">
+                                      {REACTION_EMOJIS.map((emoji) => (
+                                        <button
+                                          key={`${message._id}-picker-${emoji}`}
+                                          type="button"
+                                          onClick={() => {
+                                            void toggleReaction({
+                                              messageId: message._id as never,
+                                              emoji,
+                                            });
+                                            setReactionMenuForMessageId(null);
+                                          }}
+                                          className="rounded-full px-1.5 py-0.5 text-sm transition hover:bg-slate-700"
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
