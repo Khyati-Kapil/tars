@@ -180,6 +180,7 @@ export const listByConversation = query({
       .query("conversationMembers")
       .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
       .collect();
+    const conversation = await ctx.db.get(args.conversationId);
 
     const userIds = [...new Set(memberRows.map((m) => m.userId))];
     const profiles = await Promise.all(userIds.map((id) => ctx.db.get(id)));
@@ -188,6 +189,11 @@ export const listByConversation = query({
     );
     const userMap = new Map(
       validProfiles.map((profile) => [profile._id, profile]),
+    );
+    const activeThreshold = Date.now() - 30_000;
+    const presenceRows = await ctx.db.query("presence").collect();
+    const onlineByUserId = new Map(
+      presenceRows.map((entry) => [entry.userId, entry.lastSeenAt > activeThreshold]),
     );
 
     const typingRows = await ctx.db
@@ -218,6 +224,13 @@ export const listByConversation = query({
     return {
       currentUserId: me._id,
       typingUserName: typingUser?.name ?? null,
+      isGroup: conversation?.isGroup ?? false,
+      members: validProfiles.map((profile) => ({
+        _id: profile._id,
+        name: profile.name,
+        imageUrl: profile.imageUrl,
+        isOnline: onlineByUserId.get(profile._id) ?? false,
+      })),
       messages: rows.map((msg) => {
         const sender = userMap.get(msg.senderId);
         const reactions = reactionsByMessage.get(msg._id) ?? [];

@@ -109,6 +109,13 @@ type ConversationMessage = {
 type MessagesData = {
   currentUserId: string;
   typingUserName: string | null;
+  isGroup: boolean;
+  members: {
+    _id: string;
+    name: string;
+    imageUrl: string;
+    isOnline: boolean;
+  }[];
   messages: ConversationMessage[];
 };
 
@@ -637,7 +644,7 @@ export function ChatApp() {
                       type="button"
                       onClick={onCreateGroup}
                       className="mt-2 w-full rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-900 disabled:opacity-50"
-                      disabled={groupName.trim().length < 2 || groupMemberIds.length < 2}
+                      disabled={groupName.trim().length < 2 || groupMemberIds.length < 1}
                     >
                       Create Group
                     </button>
@@ -879,6 +886,45 @@ export function ChatApp() {
                       ))}
                     </div>
                   </header>
+
+                  {selectedConversation.isGroup && messagesData?.members ? (
+                    <div className="border-b border-slate-800/80 bg-slate-900/30 px-4 py-2">
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        Group Members
+                      </p>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {messagesData.members.map((member) => (
+                          <div
+                            key={member._id}
+                            className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1"
+                          >
+                            <div className="relative">
+                              <Avatar name={member.name} imageUrl={member.imageUrl} />
+                              <span
+                                className={clsx(
+                                  "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-slate-900",
+                                  member.isOnline ? "bg-green-500" : "bg-slate-500",
+                                )}
+                              />
+                            </div>
+                            <div className="pr-1">
+                              <p className="max-w-[120px] truncate text-xs font-medium text-slate-200">
+                                {member.name}
+                              </p>
+                              <p
+                                className={clsx(
+                                  "text-[10px]",
+                                  member.isOnline ? "text-green-400" : "text-slate-500",
+                                )}
+                              >
+                                {member.isOnline ? "Online" : "Offline"}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div
                     ref={listContainerRef}

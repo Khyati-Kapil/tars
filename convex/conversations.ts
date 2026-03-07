@@ -142,8 +142,8 @@ export const createGroupConversation = mutation({
     }
 
     const uniqueMembers = [...new Set(args.memberIds)].filter((id) => id !== me._id);
-    if (uniqueMembers.length < 2) {
-      throw new Error("Select at least two other members");
+    if (uniqueMembers.length < 1) {
+      throw new Error("Select at least one other member");
     }
 
     const now = Date.now();
