@@ -281,8 +281,10 @@ export function ChatApp() {
   useEffect(() => {
     if (!user) return;
 
-    const email = user.primaryEmailAddress?.emailAddress ?? "";
-    if (!email) return;
+    const email =
+      user.primaryEmailAddress?.emailAddress ??
+      user.emailAddresses?.[0]?.emailAddress ??
+      `${user.id}@clerk.local`;
 
     void upsertProfile({
       name: user.fullName ?? user.firstName ?? "Anonymous",
