@@ -646,7 +646,23 @@ export function ChatApp() {
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-slate-100">{chatUser.name}</p>
-                            <p className="truncate text-xs text-slate-400">{chatUser.email}</p>
+                            <div className="mt-0.5 flex items-center gap-1.5">
+                              <span
+                                className={clsx(
+                                  "h-1.5 w-1.5 rounded-full",
+                                  chatUser.isOnline ? "bg-green-500" : "bg-slate-500",
+                                )}
+                              />
+                              <p
+                                className={clsx(
+                                  "text-[11px]",
+                                  chatUser.isOnline ? "text-green-400" : "text-slate-500",
+                                )}
+                              >
+                                {chatUser.isOnline ? "Online" : "Offline"}
+                              </p>
+                              <p className="truncate text-[11px] text-slate-500">{chatUser.email}</p>
+                            </div>
                           </div>
                         </button>
                       </li>
@@ -703,6 +719,24 @@ export function ChatApp() {
 
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium text-slate-100">{conversation.title}</p>
+                            {!conversation.isGroup && (
+                              <div className="mb-0.5 mt-0.5 flex items-center gap-1.5">
+                                <span
+                                  className={clsx(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    conversation.isOtherOnline ? "bg-green-500" : "bg-slate-500",
+                                  )}
+                                />
+                                <span
+                                  className={clsx(
+                                    "text-[11px]",
+                                    conversation.isOtherOnline ? "text-green-400" : "text-slate-500",
+                                  )}
+                                >
+                                  {conversation.isOtherOnline ? "Online" : "Offline"}
+                                </span>
+                              </div>
+                            )}
                             <p className="truncate text-xs text-slate-400">
                               {conversation.latestMessage
                                 ? getMessagePreview(conversation.latestMessage.body)
@@ -711,7 +745,7 @@ export function ChatApp() {
                           </div>
 
                           {conversation.unreadCount > 0 && (
-                            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-900">
+                            <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-semibold text-black">
                               {conversation.unreadCount}
                             </span>
                           )}
@@ -950,8 +984,13 @@ export function ChatApp() {
                     )}
 
                     {messagesData?.typingUserName && (
-                      <div className="text-xs text-slate-400">
-                        {messagesData.typingUserName} is typing...
+                      <div className="flex items-center gap-2 text-xs text-slate-300">
+                        <span>{messagesData.typingUserName} is typing</span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:0ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:120ms]" />
+                          <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:240ms]" />
+                        </span>
                       </div>
                     )}
 
