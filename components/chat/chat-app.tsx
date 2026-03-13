@@ -19,7 +19,7 @@ const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"] as const;
 const MESSAGE_PAYLOAD_PREFIX = "__CHAT_PAYLOAD__";
 const CHAT_THEME_STORAGE_KEY = "tars-chat-theme";
 
-type ChatThemeKey = "graphite" | "carbon" | "ash" | "smoke";
+type ChatThemeKey = "graphite" | "carbon" | "ash" | "smoke"| "blue"|"rose";
 
 const CHAT_THEMES: Record<
   ChatThemeKey,
@@ -62,6 +62,27 @@ const CHAT_THEMES: Record<
         "repeating-linear-gradient(0deg, rgba(255,255,255,0.02), rgba(255,255,255,0.02) 1px, transparent 1px, transparent 9px), linear-gradient(180deg, #0f1216 0%, #181c23 100%)",
     },
   },
+  blue: {
+    label: "Smoke",
+    previewClass: "bg-gradient-to-br from-zinc-500 via-zinc-700 to-zinc-900",
+    style: {
+      backgroundColor: "#101215",
+      backgroundImage:
+        "linear-gradient(90deg,rgba(2, 0, 36, 1) 0%, rgba(9, 9, 121, 1) 35%, rgba(0, 212, 255, 1) 100%",
+    },
+  },
+  rose: {
+    label: "Smoke",
+    previewClass: "bg-gradient-to-br from-zinc-500 via-zinc-700 to-zinc-900",
+    style: {
+      backgroundColor: "#101215",
+      backgroundImage:
+        "radial-gradient(circle,rgba(238, 174, 202, 1) 0%, rgba(181, 45, 45, 1) 100%)",
+    },
+  }
+  
+  
+
 };
 
 type Me = {
